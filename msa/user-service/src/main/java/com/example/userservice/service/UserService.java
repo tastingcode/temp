@@ -1,5 +1,6 @@
 package com.example.userservice.service;
 
+import com.example.userservice.client.PointClient;
 import com.example.userservice.domain.User;
 import com.example.userservice.dto.SignUpRequestDto;
 import com.example.userservice.dto.UserRepository;
@@ -13,9 +14,11 @@ import java.util.stream.Collectors;
 @Service
 public class UserService {
 	private final UserRepository userRepository;
+	private final PointClient pointClient;
 
-	public UserService(UserRepository userRepository) {
+	public UserService(UserRepository userRepository, PointClient pointClient) {
 		this.userRepository = userRepository;
+		this.pointClient = pointClient;
 	}
 
 	@Transactional
@@ -24,7 +27,10 @@ public class UserService {
 				signUpRequestDto.getName(),
 				signUpRequestDto.getPassword());
 
-		this.userRepository.save(user);
+		User savedUser = this.userRepository.save(user);
+
+		// 회원가입 후 포인트 1000점 적립
+		pointClient.addPoints(savedUser.getUserId(), 1000);
 	}
 
 	public UserResponseDto getUser(Long id){
