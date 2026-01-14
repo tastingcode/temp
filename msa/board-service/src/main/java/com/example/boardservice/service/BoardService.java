@@ -1,5 +1,6 @@
 package com.example.boardservice.service;
 
+import com.example.boardservice.client.PointClient;
 import com.example.boardservice.client.UserClient;
 import com.example.boardservice.domain.Board;
 import com.example.boardservice.domain.BoardRepository;
@@ -7,7 +8,10 @@ import com.example.boardservice.dto.BoardResponseDto;
 import com.example.boardservice.dto.CreateBoardRequestDto;
 import com.example.boardservice.dto.UserDto;
 import com.example.boardservice.dto.UserResponseDto;
-import jakarta.transaction.Transactional;
+import com.example.boardservice.event.BoardCreatedEvent;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.HashMap;
@@ -20,21 +24,76 @@ public class BoardService {
 
 	private final BoardRepository boardRepository;
 	private final UserClient userClient;
+	private final PointClient pointClient;
+	private final KafkaTemplate<String, String> kafkaTemplate;
 
-	public BoardService(BoardRepository boardRepository, UserClient userClient) {
+	public BoardService(BoardRepository boardRepository,
+						UserClient userClient,
+						PointClient pointClient,
+						KafkaTemplate<String, String> kafkaTemplate) {
 		this.boardRepository = boardRepository;
 		this.userClient = userClient;
+		this.pointClient = pointClient;
+		this.kafkaTemplate = kafkaTemplate;
 	}
 
-	@Transactional
 	public void create(CreateBoardRequestDto createBoardRequestDto){
-		Board board = new Board(
-				createBoardRequestDto.getTitle(),
-				createBoardRequestDto.getContent(),
-				createBoardRequestDto.getUserId()
-		);
+		// 게시글 저장을 성공했는 지 판단하는 플래그
+		boolean isBoardCreated = false;
+		Long savedBoardId = null;
 
-		this.boardRepository.save(board);
+		// 포인트 차감을 성공했는 지 판단하는 플래그
+		boolean isPointDeducted = false;
+
+		try{
+			// 게시글 작성 전 포인트 차감
+			pointClient.deductPoints(createBoardRequestDto.getUserId(), 100);
+			isPointDeducted = true; // 포인트 차감 성공 플래그
+			System.out.println("포인트 차감 성공");
+
+			// 게시글 작성
+			Board board = new Board(
+					createBoardRequestDto.getTitle(),
+					createBoardRequestDto.getContent(),
+					createBoardRequestDto.getUserId()
+			);
+			Board savedBoard = this.boardRepository.save(board);
+			savedBoardId = savedBoard.getBoardId();
+			isBoardCreated = true; // 게시글 저장 성공 플래그/
+			System.out.println("게시글 저장 성공");
+
+			BoardCreatedEvent boardCreatedEvent
+					= new BoardCreatedEvent(createBoardRequestDto.getUserId());
+			this.kafkaTemplate.send("board.created", toJsonString(boardCreatedEvent));
+			System.out.println("게시글 작성 완료 이벤트 발행");
+
+		} catch (Exception e){
+			if (isBoardCreated){
+				// 게시글 작성 보상 트랜잭션 => 게시글 삭제
+				this.boardRepository.deleteById(savedBoardId);
+				System.out.println("[보상 트랜잭션] 게시글 삭제");
+			}
+
+			if (isPointDeducted){
+				// 포인트 차감 보상 트랜잭션 => 포인트 적립
+				pointClient.addPoints(createBoardRequestDto.getUserId(), 100);
+				System.out.println("[보상 트랜잭션] 포인트 적립");
+			}
+
+			// 실패 응답으로 처리하기 위해 예외 던지기
+			throw e;
+		}
+
+	}
+
+	private String toJsonString(Object object){
+		ObjectMapper objectMapper = new ObjectMapper();
+		try{
+			String message = objectMapper.writeValueAsString(object);
+			return message;
+		}catch (JsonProcessingException e){
+			throw new RuntimeException("Json 직렬화 실패");
+		}
 	}
 
 	public BoardResponseDto getBoard(Long boardId){
@@ -85,6 +144,38 @@ public class BoardService {
 						board.getTitle(),
 						board.getContent(),
 						userMap.get(board.getUserId())
+				))
+				.toList();
+	}
+
+	// 연관관계를 활용한 특정 게시글 조회
+	public BoardResponseDto getBoardV2(Long boardId){
+		Board board = boardRepository.findById(boardId)
+				.orElseThrow(() -> new IllegalArgumentException("게시글을 찾을 수 없습니다."));
+
+		BoardResponseDto boardResponseDto = new BoardResponseDto(board.getBoardId(),
+				board.getTitle(),
+				board.getContent(),
+				new UserDto(
+						board.getUser().getUserId(),
+						board.getUser().getName()
+				));
+
+		return boardResponseDto;
+	}
+
+	// 연관관계를 활용한 게시글 전체 조회
+	public List<BoardResponseDto> getBoardsV2(){
+		List<Board> boards = boardRepository.findAll();
+		return boards.stream()
+				.map(board -> new BoardResponseDto(
+						board.getBoardId(),
+						board.getTitle(),
+						board.getContent(),
+						new UserDto(
+								board.getUser().getUserId(),
+								board.getUser().getName()
+						)
 				))
 				.toList();
 	}

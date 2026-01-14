@@ -1,5 +1,6 @@
 package com.example.userservice.controller;
 
+import com.example.userservice.dto.AddActivityScoreRequestDto;
 import com.example.userservice.dto.SignUpRequestDto;
 import com.example.userservice.dto.UserResponseDto;
 import com.example.userservice.service.UserService;
@@ -9,7 +10,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("/users")
+@RequestMapping("/api/users")
 public class UserController {
 	private final UserService userService;
 
@@ -23,19 +24,6 @@ public class UserController {
 	) {
 		userService.signUp(signUpRequestDto);
 		return ResponseEntity.noContent().build();
-	}
-
-	@GetMapping("{userId}")
-	public ResponseEntity<UserResponseDto> getUser(@PathVariable Long userId){
-		UserResponseDto userResponseDto = userService.getUser(userId);
-		return ResponseEntity.ok(userResponseDto);
-	}
-
-	@GetMapping()
-	public ResponseEntity<List<UserResponseDto>> getUsersByIds(@RequestParam List<Long> ids){
-		List<UserResponseDto> userResponseDtos = userService.getUsersByIds(ids);
-		return ResponseEntity.ok(userResponseDtos);
-
 	}
 
 }
