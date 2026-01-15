@@ -2,18 +2,20 @@ package com.example.userservice.service;
 
 import com.example.userservice.client.PointClient;
 import com.example.userservice.domain.User;
-import com.example.userservice.dto.AddActivityScoreRequestDto;
-import com.example.userservice.dto.SignUpRequestDto;
-import com.example.userservice.dto.UserRepository;
-import com.example.userservice.dto.UserResponseDto;
+import com.example.userservice.dto.*;
 import com.example.userservice.event.UserSignedUpEvent;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.Keys;
 import jakarta.transaction.Transactional;
 import org.apache.kafka.common.protocol.types.Field;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 
+import javax.crypto.SecretKey;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -22,13 +24,16 @@ public class UserService {
 	private final UserRepository userRepository;
 	private final PointClient pointClient;
 	private final KafkaTemplate<String, String> kafkaTemplate;
+	private final String jwtSecret;
 
 	public UserService(UserRepository userRepository,
 					   PointClient pointClient,
-					   KafkaTemplate<String, String> kafkaTemplate) {
+					   KafkaTemplate<String, String> kafkaTemplate,
+					   @Value("${jwt.secret}") String jwtSecret) {
 		this.userRepository = userRepository;
 		this.pointClient = pointClient;
 		this.kafkaTemplate = kafkaTemplate;
+		this.jwtSecret = jwtSecret;
 	}
 
 	@Transactional
@@ -90,5 +95,25 @@ public class UserService {
 		user.addActivityScore(addActivityScoreRequestDto.getScore());
 		userRepository.save(user);
 
+	}
+
+	public LoginResponseDto login(LoginRequestDto loginRequestDto){
+		User user = userRepository.findByEmail(loginRequestDto.getEmail())
+				.orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다."));
+
+		if (!user.getPassword().equals(loginRequestDto.getPassword())){
+			throw new IllegalArgumentException("비밀번호가 일치하지 않습니다.");
+		}
+
+		// JWT를 만들 때 사용하는 Key 생성 (공식 문서 방식)
+		SecretKey secretKey = Keys.hmacShaKeyFor(jwtSecret.getBytes(StandardCharsets.UTF_8));
+
+		// JWT 토큰 만들기
+		String token = Jwts.builder()
+				.subject(user.getUserId().toString())
+				.signWith(secretKey)
+				.compact();
+
+		return new LoginResponseDto(token);
 	}
 }

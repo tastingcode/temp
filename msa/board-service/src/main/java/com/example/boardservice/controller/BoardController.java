@@ -20,9 +20,10 @@ public class BoardController {
 
 	@PostMapping
 	public ResponseEntity<Void> create(
-			@RequestBody CreateBoardRequestDto createBoardRequestDto
+			@RequestBody CreateBoardRequestDto createBoardRequestDto,
+			@RequestHeader("X-User-Id") Long userId
 	) {
-		boardService.create(createBoardRequestDto);
+		boardService.create(createBoardRequestDto, userId);
 		return ResponseEntity.noContent().build();
 	}
 

@@ -5,7 +5,6 @@ public class CreateBoardRequestDto {
 
 	private String content;
 
-	private Long userId;
 
 	public String getTitle() {
 		return title;
@@ -15,7 +14,4 @@ public class CreateBoardRequestDto {
 		return content;
 	}
 
-	public Long getUserId() {
-		return userId;
-	}
 }
